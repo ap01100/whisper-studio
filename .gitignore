@@ -1,0 +1,53 @@
+# ==============================================================================
+# Whisper Studio .gitignore
+# ==============================================================================
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Downloaded AI Model Weights (Large binaries)
+models/*
+!models/.gitkeep
+
+# User Media (Audio and Video files)
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.ogg
+*.aac
+*.wma
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.ts
+
+# Generated Transcripts & Output Files
+*_transcript.txt
+*_subtitles.srt
+*_subtitles.vtt
+*_data.json
+
+# Scratch & Temporary Logs
+scratch/
+*.log
+
+# IDE & OS Specific
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+Thumbs.db
+.DS_Store

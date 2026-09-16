@@ -1,0 +1,24 @@
+# --- Движок инференса и распознавания речи ---
+faster-whisper>=1.2.1
+ctranslate2>=4.8.0
+huggingface-hub>=0.23.0
+tokenizers>=0.19.0
+onnxruntime>=1.17.0
+
+# --- Библиотеки аппаратного ускорения NVIDIA CUDA 12 (Windows pip-колёса) ---
+nvidia-cublas-cu12>=12.4.5.8
+nvidia-cudnn-cu12>=9.1.0.70
+nvidia-cuda-nvrtc-cu12>=12.4.0
+
+# --- Автономный FFmpeg и работа с медиафайлами ---
+imageio-ffmpeg>=0.5.1
+soundfile>=0.12.1
+
+# --- Графический интерфейс пользователя (UI) ---
+customtkinter>=5.2.2
+darkdetect>=0.8.0
+pillow>=10.3.0
+packaging>=24.0
+
+# --- Нативный Drag & Drop для Windows ---
+windnd>=1.0.7
