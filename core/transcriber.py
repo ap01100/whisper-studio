@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional, Callable
 from core.cuda_utils import setup_cuda_dlls, get_gpu_info
 from core.audio_utils import get_media_info, format_seconds_to_time
 from core.model_manager import get_resolved_model_path, MODELS_DIR
+from core.vram_manager import get_vram_manager
 
 # Регистрация путей к DLL до импорта faster_whisper
 setup_cuda_dlls()
@@ -29,6 +30,7 @@ class WhisperTranscriber:
         self.loaded_device: Optional[str] = None
         self.loaded_compute_type: Optional[str] = None
         self._lock = threading.Lock()
+        get_vram_manager().register_transcriber(self)
 
     def unload_model(self):
         """Выгружает модель из VRAM/RAM и выполняет сборку мусора."""
@@ -68,7 +70,10 @@ class WhisperTranscriber:
             ):
                 return self.model
 
-            # Выгружаем предыдущую модель
+            # Освобождаем VRAM от LLM (Qwen/DeepSeek) через VRAM Arbiter
+            get_vram_manager().prepare_for_transcription()
+
+            # Выгружаем предыдущую модель Whisper
             if self.model is not None:
                 del self.model
                 self.model = None

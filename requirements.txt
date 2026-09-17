@@ -9,6 +9,7 @@ onnxruntime>=1.17.0
 nvidia-cublas-cu12>=12.4.5.8
 nvidia-cudnn-cu12>=9.1.0.70
 nvidia-cuda-nvrtc-cu12>=12.4.0
+nvidia-cuda-runtime-cu12>=12.4.0
 
 # --- Автономный FFmpeg и работа с медиафайлами ---
 imageio-ffmpeg>=0.5.1
@@ -22,3 +23,8 @@ packaging>=24.0
 
 # --- Нативный Drag & Drop для Windows ---
 windnd>=1.0.7
+
+# --- Ускорение Hugging Face Hub и вспомогательные библиотеки ---
+hf-transfer>=0.1.9
+pydantic>=2.7.0
+markdown>=3.6

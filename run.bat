@@ -80,12 +80,23 @@ echo [2/3] Upgrading pip...
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip >nul 2>nul
 
-echo [3/3] Installing dependencies (CUDA 12, CTranslate2, faster-whisper, UI)...
+echo [3/4] Installing dependencies (CUDA 12, faster-whisper, UI, HF transfer)...
 pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to install dependencies.
     pause
     exit /b 1
+)
+
+echo [4/4] Checking llama-cpp-python (CUDA 12 LLM acceleration)...
+python -c "import llama_cpp" >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [*] Installing pre-compiled CUDA 12 llama-cpp-python wheel...
+    pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+    if %errorlevel% neq 0 (
+        echo [WARNING] Failed to install pre-compiled wheel. Trying standard install...
+        pip install llama-cpp-python
+    )
 )
 
 echo.
@@ -94,6 +105,10 @@ echo.
 
 :activate_and_run
 if not exist "models" mkdir "models"
+if not exist "models\llm" mkdir "models\llm"
+
+:: Enable Rust-based accelerated Hugging Face downloads
+set "HF_HUB_ENABLE_HF_TRANSFER=1"
 
 call .venv\Scripts\activate.bat
 echo [*] Starting Whisper Studio...

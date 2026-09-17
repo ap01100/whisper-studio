@@ -15,9 +15,16 @@ venv/
 env/
 ENV/
 
+# Config & Secrets
+config.json
+
 # Downloaded AI Model Weights (Large binaries)
 models/*
 !models/.gitkeep
+!models/llm/
+models/llm/*
+!models/llm/.gitkeep
+*.gguf
 
 # User Media (Audio and Video files)
 *.mp3
@@ -34,11 +41,13 @@ models/*
 *.webm
 *.ts
 
-# Generated Transcripts & Output Files
+# Generated Transcripts, Summaries & Output Files
 *_transcript.txt
 *_subtitles.srt
 *_subtitles.vtt
 *_data.json
+*_summary.md
+*_summary.txt
 
 # Scratch & Temporary Logs
 scratch/

@@ -24,10 +24,10 @@ def setup_cuda_dlls() -> bool:
     for sp in site_packages:
         nvidia_dir = sp / "nvidia"
         if nvidia_dir.exists():
-            for subpkg in ["cublas", "cudnn", "cuda_nvrtc"]:
+            for subpkg in ["cublas", "cudnn", "cuda_nvrtc", "cuda_runtime"]:
                 bin_dir = nvidia_dir / subpkg / "bin"
                 if bin_dir.exists():
-                    bin_str = str(bin_dir)
+                    bin_str = str(bin_dir.resolve())
                     try:
                         os.add_dll_directory(bin_str)
                     except (AttributeError, OSError):
@@ -35,6 +35,16 @@ def setup_cuda_dlls() -> bool:
                     if bin_str not in os.environ.get("PATH", ""):
                         os.environ["PATH"] = bin_str + os.pathsep + os.environ.get("PATH", "")
                     found_any = True
+
+        llama_dir = sp / "llama_cpp" / "lib"
+        if llama_dir.exists():
+            llama_str = str(llama_dir.resolve())
+            try:
+                os.add_dll_directory(llama_str)
+            except (AttributeError, OSError):
+                pass
+            if llama_str not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = llama_str + os.pathsep + os.environ.get("PATH", "")
 
     return found_any
 
