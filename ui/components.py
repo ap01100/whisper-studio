@@ -331,3 +331,33 @@ class ToastMessage(ctk.CTkFrame):
 
     def hide(self):
         self.place_forget()
+
+
+def bind_paste_support(widget):
+    """
+    Универсальный обработчик вставки (Paste) из буфера обмена для CTkEntry и CTkTextbox.
+    Корректно перехватывает русскую раскладку клавиатуры (KeyCode 86 на Windows).
+    """
+    inner = getattr(widget, "_entry", None) or getattr(widget, "_textbox", None)
+    if not inner:
+        return
+
+    def do_paste(event=None):
+        try:
+            text = widget.clipboard_get()
+            if text:
+                if hasattr(widget, "_entry"):
+                    widget.insert("insert", text)
+                elif hasattr(widget, "_textbox"):
+                    widget.insert("insert", text)
+        except Exception:
+            pass
+        return "break"
+
+    def on_key(event):
+        # KeyCode 86 = клавиша 'V'/'М' на физической клавиатуре Windows
+        if (event.state & 4) and (event.keycode == 86 or event.keysym.lower() in ("v", "cyrillic_em", "ntilde")):
+            return do_paste()
+
+    inner.bind("<Key>", on_key)
+

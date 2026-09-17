@@ -2,6 +2,7 @@
 """
 import webbrowser
 import threading
+import tkinter as tk
 import customtkinter as ctk
 from typing import Optional, Callable
 
@@ -9,6 +10,7 @@ from ui.theme import (
     COLOR_BG_PRIMARY,
     COLOR_BG_SECONDARY,
     COLOR_BG_CARD,
+    COLOR_BG_CARD_HOVER,
     COLOR_BG_INPUT,
     COLOR_BORDER,
     COLOR_BORDER_FOCUS,
@@ -158,6 +160,24 @@ class HFTokenDialog(ctk.CTkToplevel):
         )
         self.toggle_eye_btn.pack(side="right")
 
+        # Кнопка «Вставить из буфера»
+        self.paste_btn = ctk.CTkButton(
+            entry_row,
+            text="📋 Вставить",
+            font=FONT_CAPTION,
+            fg_color=COLOR_BTN_SECONDARY,
+            hover_color=COLOR_BTN_SECONDARY_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            width=92,
+            height=36,
+            corner_radius=CORNER_RADIUS_SM,
+            command=self._paste_from_clipboard,
+        )
+        self.paste_btn.pack(side="right", padx=(0, 6))
+
+        # Настройка вставки (контекстное меню ПКМ и перехват русской раскладки клавиатуры)
+        self._setup_paste_support()
+
         # Статус проверки
         self.status_label = ctk.CTkLabel(
             container,
@@ -242,6 +262,62 @@ class HFTokenDialog(ctk.CTkToplevel):
         else:
             self.token_entry.configure(show="•")
             self.toggle_eye_btn.configure(text="👁")
+
+    def _paste_from_clipboard(self, event=None):
+        """Вставляет токен из буфера обмена и сразу запускает валидацию."""
+        try:
+            text = self.clipboard_get()
+            if text:
+                token = text.strip()
+                self.token_entry.delete(0, "end")
+                self.token_entry.insert(0, token)
+                self.status_label.configure(
+                    text="✓ Токен вставлен. Проверка доступа...",
+                    text_color=COLOR_TEXT_SECONDARY,
+                )
+                self._start_verify()
+            else:
+                self.status_label.configure(text="Буфер обмена пуст.", text_color=COLOR_WARNING)
+        except Exception as e:
+            self.status_label.configure(text=f"Не удалось прочитать буфер обмена: {e}", text_color=COLOR_WARNING)
+        return "break"
+
+    def _setup_paste_support(self):
+        """Гарантирует работу вставки через Ctrl+V на любой раскладке (RU/EN) и через контекстное меню ПКМ."""
+        entry_widget = self.token_entry._entry
+
+        # Контекстное меню ПКМ
+        self.context_menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg=COLOR_BG_CARD,
+            fg=COLOR_TEXT_PRIMARY,
+            activebackground=COLOR_BG_CARD_HOVER,
+            activeforeground=COLOR_TEXT_PRIMARY,
+            font=("Segoe UI", 9),
+            relief="flat",
+            bd=1,
+        )
+        self.context_menu.add_command(label="📋 Вставить из буфера", command=self._paste_from_clipboard)
+        self.context_menu.add_command(label="✕ Очистить поле", command=lambda: self.token_entry.delete(0, "end"))
+
+        def popup_menu(event):
+            try:
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.context_menu.grab_release()
+
+        entry_widget.bind("<Button-3>", popup_menu)
+
+        # Перехват Ctrl+V независимо от языка ввода в Windows (KeyCode 86 = V)
+        def on_key_event(event):
+            is_ctrl = bool(event.state & 4) or bool(event.state & 0x20000) or (event.keysym in ("v", "V") and "control" in str(event.state).lower())
+            is_v_key = (event.keycode == 86) or (event.keysym.lower() in ("v", "cyrillic_em", "ntilde"))
+            if is_ctrl and is_v_key:
+                return self._paste_from_clipboard()
+
+        entry_widget.bind("<Key>", on_key_event)
+        self.token_entry.bind("<Key>", on_key_event)
 
     def _start_verify(self):
         token = self.token_entry.get().strip()

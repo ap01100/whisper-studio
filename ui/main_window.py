@@ -42,7 +42,7 @@ from ui.theme import (
     CORNER_RADIUS_LG,
     apply_global_theme,
 )
-from ui.components import GPUBadge, DropZone, CollapsibleSection, ToastMessage
+from ui.components import GPUBadge, DropZone, CollapsibleSection, ToastMessage, bind_paste_support
 from ui.onboarding import OnboardingDialog
 from ui.hf_token_dialog import HFTokenDialog
 from ui.summary_view import SummaryView
@@ -557,6 +557,7 @@ class MainWindow(ctk.CTk):
         )
         self.search_entry.pack(side="left", padx=(0, 6))
         self.search_entry.bind("<KeyRelease>", self._on_search_text_changed)
+        bind_paste_support(self.search_entry)
 
         # Кнопка копирования
         self.copy_btn = ctk.CTkButton(

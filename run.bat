@@ -107,8 +107,8 @@ echo.
 if not exist "models" mkdir "models"
 if not exist "models\llm" mkdir "models\llm"
 
-:: Enable Rust-based accelerated Hugging Face downloads
-set "HF_HUB_ENABLE_HF_TRANSFER=1"
+:: Enable high-performance accelerated Hugging Face downloads via Xet
+set "HF_XET_HIGH_PERFORMANCE=1"
 
 call .venv\Scripts\activate.bat
 echo [*] Starting Whisper Studio...

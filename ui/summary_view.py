@@ -42,7 +42,7 @@ from ui.theme import (
     CORNER_RADIUS_MD,
     CORNER_RADIUS_LG,
 )
-from ui.components import CollapsibleSection, ToastMessage
+from ui.components import CollapsibleSection, ToastMessage, bind_paste_support
 from ui.hf_token_dialog import HFTokenDialog
 from core.hf_downloader import (
     LLM_REGISTRY,
@@ -257,6 +257,7 @@ class SummaryView(ctk.CTkFrame):
             corner_radius=CORNER_RADIUS_SM,
         )
         self.custom_prompt_entry.pack(fill="x", pady=(0, 10))
+        bind_paste_support(self.custom_prompt_entry)
 
         # 3. Аккордеон расширенных настроек LLM
         self.adv_section = CollapsibleSection(left_col, title="Расширенные настройки LLM")

@@ -7,8 +7,11 @@ import sys
 import json
 import time
 import threading
+import warnings
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub")
 
 from huggingface_hub import HfApi, hf_hub_download
 
@@ -111,10 +114,12 @@ def apply_hf_environment() -> None:
     elif "HF_TOKEN" in os.environ and not token:
         del os.environ["HF_TOKEN"]
 
-    # Включение hf_transfer для многопоточного ускорения
+    # Включение высокопроизводительной передачи данных (Xet / High Performance)
     if cfg.get("hf_transfer", True):
-        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+        os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
+        os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
     else:
+        os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
         os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
 
 
