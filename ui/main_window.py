@@ -44,7 +44,10 @@ from ui.theme import (
 )
 from ui.components import GPUBadge, DropZone, CollapsibleSection, ToastMessage
 from ui.onboarding import OnboardingDialog
+from ui.hf_token_dialog import HFTokenDialog
+from ui.summary_view import SummaryView
 from core.cuda_utils import get_gpu_info
+from core.vram_manager import get_vram_manager
 from core.model_manager import (
     MODEL_REGISTRY,
     is_model_cached,
@@ -70,7 +73,7 @@ class MainWindow(ctk.CTk):
         super().__init__()
         apply_global_theme()
 
-        self.title("Whisper Studio — Local Speech Recognition")
+        self.title("Whisper Studio — Local Speech Recognition & AI Summarizer")
         self.geometry("1180x760")
         self.minsize(980, 640)
         self.configure(fg_color=COLOR_BG_PRIMARY)
@@ -93,7 +96,9 @@ class MainWindow(ctk.CTk):
 
         # Построение интерфейса
         self._build_header()
-        self._build_main_layout()
+        self._build_nav_tabs()
+        self._build_transcription_view()
+        self._build_summary_view()
 
         # Toast для уведомлений
         self.toast = ToastMessage(self)
@@ -101,10 +106,16 @@ class MainWindow(ctk.CTk):
         # Проверка первого запуска (онбординг моделей)
         self.after(300, self._check_first_run)
 
+        # Фоновый мониторинг расхода VRAM
+        self.after(2000, self._update_vram_status)
+
+        # Обработка чистого выхода
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
     def _build_header(self):
-        """Верхняя панель: название приложения и аппаратный бейдж."""
+        """Верхняя панель: название приложения, кнопка HF Token и аппаратный бейдж."""
         header = ctk.CTkFrame(self, fg_color="transparent", height=56)
-        header.pack(fill="x", padx=24, pady=(16, 12))
+        header.pack(fill="x", padx=24, pady=(16, 10))
 
         # Левая часть шапки: Логотип и имя
         left_header = ctk.CTkFrame(header, fg_color="transparent")
@@ -120,20 +131,90 @@ class MainWindow(ctk.CTk):
 
         version_label = ctk.CTkLabel(
             left_header,
-            text="v1.0 (CUDA 12)",
+            text="v2.0 (CUDA 12 + LLM)",
             font=FONT_CAPTION,
             text_color=COLOR_TEXT_MUTED,
         )
         version_label.pack(side="left", padx=(8, 0), pady=(3, 0))
 
-        # Правая часть шапки: GPU Badge
+        # Правая часть шапки: GPU Badge & HF Token
         self.gpu_badge = GPUBadge(header, self.gpu_info)
         self.gpu_badge.pack(side="right")
 
-    def _build_main_layout(self):
+        self.hf_token_btn = ctk.CTkButton(
+            header,
+            text="🔑 HF Token",
+            width=92,
+            height=30,
+            font=FONT_CAPTION,
+            fg_color=COLOR_BTN_SECONDARY,
+            hover_color=COLOR_BTN_SECONDARY_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            corner_radius=CORNER_RADIUS_SM,
+            command=self._open_hf_token_dialog,
+        )
+        self.hf_token_btn.pack(side="right", padx=(0, 10))
+
+    def _build_nav_tabs(self):
+        """Панель навигации между модулями транскрибации и AI-конспекта."""
+        nav_bar = ctk.CTkFrame(self, fg_color="transparent")
+        nav_bar.pack(fill="x", padx=24, pady=(0, 12))
+
+        self.tab_switch = ctk.CTkSegmentedButton(
+            nav_bar,
+            values=["🎙️ Аудио и Транскрибация", "✨ AI-Конспект"],
+            font=FONT_BODY_BOLD,
+            fg_color=COLOR_BG_INPUT,
+            selected_color=COLOR_ACCENT_WHITE,
+            selected_hover_color=COLOR_ACCENT_HOVER,
+            corner_radius=CORNER_RADIUS_SM,
+            height=36,
+            command=self._on_tab_changed,
+        )
+
+        orig_select = self.tab_switch._select_button_by_value
+        orig_unselect = self.tab_switch._unselect_button_by_value
+
+        def custom_select(value: str):
+            orig_select(value)
+            if hasattr(self.tab_switch, "_buttons_dict") and value in self.tab_switch._buttons_dict:
+                self.tab_switch._buttons_dict[value].configure(text_color=COLOR_ACCENT_TEXT)
+
+        def custom_unselect(value: str):
+            orig_unselect(value)
+            if hasattr(self.tab_switch, "_buttons_dict") and value in self.tab_switch._buttons_dict:
+                self.tab_switch._buttons_dict[value].configure(text_color=COLOR_TEXT_SECONDARY)
+
+        self.tab_switch._select_button_by_value = custom_select
+        self.tab_switch._unselect_button_by_value = custom_unselect
+
+        self.tab_switch.set("🎙️ Аудио и Транскрибация")
+        self.tab_switch.pack(side="left")
+        self.after(50, self._update_tab_switch_styles)
+
+    def _update_tab_switch_styles(self):
+        selected = self.tab_switch.get()
+        if hasattr(self.tab_switch, "_buttons_dict"):
+            for val, btn in self.tab_switch._buttons_dict.items():
+                if val == selected:
+                    btn.configure(text_color=COLOR_ACCENT_TEXT)
+                else:
+                    btn.configure(text_color=COLOR_TEXT_SECONDARY)
+
+    def _on_tab_changed(self, tab_name: str):
+        self._update_tab_switch_styles()
+        if tab_name == "✨ AI-Конспект":
+            self.transcribe_container.pack_forget()
+            self.summary_container.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+        else:
+            self.summary_container.pack_forget()
+            self.transcribe_container.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+
+    def _build_transcription_view(self):
         """Основной макет из двух колонок: слева настройки и файл, справа результат."""
-        container = ctk.CTkFrame(self, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+        self.transcribe_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.transcribe_container.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+        container = self.transcribe_container
 
         # ==========================================================
         # Левая колонка (Управление, ввод файла, параметры) ~ 400px
@@ -541,8 +622,28 @@ class MainWindow(ctk.CTk):
             )
             btn.pack(side="left", padx=4)
 
+        # Кнопка быстрой передачи текста в модуль AI-конспекта
+        self.summarize_btn = ctk.CTkButton(
+            export_toolbar,
+            text="✨ Сгенерировать конспект лекции",
+            font=FONT_CAPTION,
+            fg_color=COLOR_ACCENT_WHITE,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color=COLOR_ACCENT_TEXT,
+            height=30,
+            corner_radius=CORNER_RADIUS_SM,
+            command=self._transfer_to_summarizer,
+        )
+        self.summarize_btn.pack(side="right")
+
         # Обновление бейджа модели
         self._update_model_badge()
+
+    def _build_summary_view(self):
+        """Вкладка модуля конспектирования лекций (LLM)."""
+        self.summary_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.summary_view = SummaryView(self.summary_container, on_open_hf_dialog=self._open_hf_token_dialog)
+        self.summary_view.pack(fill="both", expand=True)
 
     # ==========================================================
     # Логика работы с моделями
@@ -1024,3 +1125,52 @@ class MainWindow(ctk.CTk):
                 messagebox.showerror("Ошибка", f"Не удалось открыть папку: {e}")
         else:
             messagebox.showinfo("Папка с файлом", "Сначала выберите файл или запустите транскрибирование.")
+
+    # ==========================================================
+    # Интеграция с AI-Конспектом и системные обработчики
+    # ==========================================================
+    def _transfer_to_summarizer(self):
+        """Передает транскрибированный текст в AI-Конспект и переключает вкладку."""
+        text = self.textbox.get("1.0", "end-1c").strip()
+        if not text or text.startswith("[Живой предпросмотр") or text.startswith("Готов к работе"):
+            messagebox.showinfo(
+                "Нет текста для конспектирования",
+                "Сначала выполните транскрибирование аудиофайла или вставьте текст в поле предпросмотра.",
+            )
+            return
+
+        self.summary_view.load_transcript(text, self.selected_file)
+        self.tab_switch.set("✨ AI-Конспект")
+        self._on_tab_changed("✨ AI-Конспект")
+        self.toast = ToastMessage(self, "✓ Текст передан в модуль AI-Конспекта")
+        self.toast.show()
+
+    def _open_hf_token_dialog(self):
+        """Открывает диалог настройки Hugging Face Token."""
+        HFTokenDialog(self, on_saved=lambda t: self.summary_view._on_model_changed())
+
+    def _update_vram_status(self):
+        """Периодический опрос VRAM для обновления информации в шапке окна."""
+        try:
+            vram = get_vram_manager().get_vram_info()
+            if self.gpu_info.get("cuda_ready", False):
+                used_gb = vram["used_mb"] / 1024.0
+                total_gb = vram["total_mb"] / 1024.0
+                pct = vram["percent"]
+                text = f"● GPU: {self.gpu_info['name']} | VRAM: {used_gb:.1f}/{total_gb:.1f} GB ({pct}%)"
+                self.gpu_badge.text_label.configure(text=text)
+        except Exception:
+            pass
+        finally:
+            self.after(3000, self._update_vram_status)
+
+    def _on_close(self):
+        """Корректное завершение работы и освобождение ресурсов GPU."""
+        try:
+            self.cancel_event.set()
+            if hasattr(self, "summary_view"):
+                self.summary_view.cancel_event.set()
+            get_vram_manager().unload_all()
+        except Exception:
+            pass
+        self.destroy()
