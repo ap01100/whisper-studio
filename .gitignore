@@ -49,9 +49,11 @@ models/llm/*
 *_summary.md
 *_summary.txt
 
-# Scratch & Temporary Logs
+# Scratch, Temporary Logs & Prompts
 scratch/
 *.log
+whisper_llm_extension_prompt.txt
+*prompt*.txt
 
 # IDE & OS Specific
 .idea/
