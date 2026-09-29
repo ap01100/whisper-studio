@@ -1,6 +1,7 @@
 # --- Движок инференса и распознавания речи ---
 faster-whisper>=1.2.1
 ctranslate2>=4.8.0
+av>=11.0.0,<19.0.0
 huggingface-hub>=0.23.0
 tokenizers>=0.19.0
 onnxruntime>=1.17.0

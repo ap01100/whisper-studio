@@ -9,9 +9,11 @@ from core.cuda_utils import setup_cuda_dlls, get_gpu_info
 from core.audio_utils import get_media_info, format_seconds_to_time
 from core.model_manager import get_resolved_model_path, MODELS_DIR
 from core.vram_manager import get_vram_manager
+from core.pyav_compat import apply_pyav_patch
 
-# Регистрация путей к DLL до импорта faster_whisper
+# Регистрация путей к DLL и патча PyAV до любого импорта faster_whisper
 setup_cuda_dlls()
+apply_pyav_patch()
 
 
 class TranscriptionCancelledException(Exception):
@@ -157,6 +159,8 @@ class WhisperTranscriber:
             raise TranscriptionCancelledException("Транскрибирование отменено пользователем.")
 
         # Загрузка/проверка модели
+        if progress_callback:
+            progress_callback(0.0, None, 0.0, f"Подготовка модели {model_name}...")
         self.load_model(model_name=model_name, compute_type=compute_type)
 
         lang_param = None if (not language or language == "auto" or language == "Авто") else language
@@ -165,6 +169,8 @@ class WhisperTranscriber:
         all_segments: List[Dict[str, Any]] = []
 
         try:
+            if progress_callback:
+                progress_callback(0.01, None, 0.0, f"Анализ аудио и VAD-фильтрация ({media_info['duration_str']})...")
             vad_opts = dict(min_silence_duration_ms=500) if vad_filter else None
             segments_generator, info = self.model.transcribe(
                 audio_path,

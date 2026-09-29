@@ -58,6 +58,15 @@ def setup_cuda_dlls() -> bool:
                 except Exception:
                     pass
 
+    # Инициализация рантайма CUDA Driver API (пробуждение GPU из D3/сонного режима на Windows)
+    try:
+        import ctypes
+        nvcuda = ctypes.WinDLL("nvcuda.dll")
+        if hasattr(nvcuda, "cuInit"):
+            nvcuda.cuInit(0)
+    except Exception:
+        pass
+
     return found_any
 
 
@@ -94,7 +103,7 @@ def get_gpu_info() -> Dict[str, Any]:
         if res.returncode == 0 and res.stdout.strip():
             first_line = res.stdout.strip().splitlines()[0]
             parts = [p.strip() for p in first_line.split(",")]
-            if len(parts) >= 3:
+            if len(parts) >= 3 and not parts[0].lower().startswith("nvidia-smi"):
                 info["has_gpu"] = True
                 info["name"] = parts[0]
                 try:
@@ -113,6 +122,32 @@ def get_gpu_info() -> Dict[str, Any]:
                     pass
     except Exception:
         pass
+
+    # 1.1 Резервный опрос через нативный CUDA Driver API (если nvidia-smi заблокирован правами)
+    if not info["has_gpu"] and sys.platform == "win32":
+        try:
+            import ctypes
+            nvcuda = ctypes.WinDLL("nvcuda.dll")
+            if nvcuda.cuInit(0) == 0:
+                dev_count = ctypes.c_int()
+                if nvcuda.cuDeviceGetCount(ctypes.byref(dev_count)) == 0 and dev_count.value > 0:
+                    dev = ctypes.c_int()
+                    if nvcuda.cuDeviceGet(ctypes.byref(dev), 0) == 0:
+                        name_buf = ctypes.create_string_buffer(256)
+                        nvcuda.cuDeviceGetName(name_buf, 256, dev)
+                        gpu_name = name_buf.value.decode("utf-8", errors="replace").strip()
+                        total_bytes = ctypes.c_size_t()
+                        if hasattr(nvcuda, "cuDeviceTotalMem_v2"):
+                            nvcuda.cuDeviceTotalMem_v2(ctypes.byref(total_bytes), dev)
+                        elif hasattr(nvcuda, "cuDeviceTotalMem"):
+                            nvcuda.cuDeviceTotalMem(ctypes.byref(total_bytes), dev)
+                        vram_gb = round(total_bytes.value / (1024**3), 1)
+
+                        info["has_gpu"] = True
+                        info["name"] = gpu_name
+                        info["vram_gb"] = vram_gb
+        except Exception:
+            pass
 
     # 2. Проверка доступности CUDA в CTranslate2
     try:

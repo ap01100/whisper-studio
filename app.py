@@ -32,7 +32,11 @@ apply_hf_environment()
 from core.cuda_utils import setup_cuda_dlls
 cuda_dlls_registered = setup_cuda_dlls()
 
-# 2. Инициализация главного окна GUI
+# 3. Применение патча совместимости PyAV для faster-whisper (PyAV 19.x)
+from core.pyav_compat import apply_pyav_patch
+apply_pyav_patch()
+
+# 4. Инициализация главного окна GUI
 from ui.main_window import MainWindow
 
 

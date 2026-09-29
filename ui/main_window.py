@@ -862,7 +862,8 @@ class MainWindow(ctk.CTk):
                 msg_type, payload = self.transcribe_queue.get_nowait()
                 if msg_type == "SEGMENT":
                     frac, seg, spd, st_str = payload
-                    new_segments_batch.append(seg)
+                    if seg is not None:
+                        new_segments_batch.append(seg)
                     latest_fraction = frac
                     latest_speed = spd
                     latest_status = st_str
