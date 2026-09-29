@@ -87,6 +87,7 @@ def load_config() -> Dict[str, Any]:
     default_cfg = {
         "hf_token": None,
         "hf_transfer": True,
+        "hf_endpoint": "https://hf-mirror.com",
         "default_llm": "qwen-2.5-7b",
         "autosave_summary": True,
     }
@@ -148,8 +149,18 @@ def apply_hf_environment() -> None:
     os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
     os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
 
-    # 4. Авторизация токеном в окружении и кэше Hugging Face Hub
+    # 4. Настройка сетевых таймаутов и быстрого зеркала для стабильной загрузки в РФ
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
+
     cfg = load_config()
+    endpoint = cfg.get("hf_endpoint", "https://hf-mirror.com")
+    if endpoint and str(endpoint).strip():
+        os.environ["HF_ENDPOINT"] = str(endpoint).strip()
+    elif "HF_ENDPOINT" not in os.environ:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+    # 5. Авторизация токеном в окружении и кэше Hugging Face Hub
     token = cfg.get("hf_token")
     if token and str(token).strip():
         clean_token = str(token).strip()

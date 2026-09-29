@@ -5,7 +5,10 @@ import sys
 import os
 from pathlib import Path
 
-# 0. Настройка кодировки терминала на Windows и отключение сбоящего Xet
+# 0. Настройка кодировки терминала на Windows, UTF-8 режима и сетевых таймаутов
+os.environ["PYTHONUTF8"] = "1"
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
 if sys.platform == "win32":
     try:
         if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -17,6 +20,9 @@ if sys.platform == "win32":
 
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
 
 # Добавляем корневую директорию проекта в sys.path

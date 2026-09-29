@@ -81,6 +81,8 @@ def get_media_info(file_path: str) -> Dict[str, Any]:
                 stderr=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
             match = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", res.stderr)

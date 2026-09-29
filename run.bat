@@ -116,9 +116,16 @@ echo.
 if not exist "models" mkdir "models"
 if not exist "models\llm" mkdir "models\llm"
 
-:: Disable buggy Xet on Windows to ensure reliable, high-speed CDN downloads with resume
+:: Enable UTF-8 mode in Python to prevent cp1251 charmap decode errors
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+
+:: Network and Hugging Face optimization (fast mirror and extended timeouts to prevent SSL handshake timeouts)
 set "HF_HUB_DISABLE_XET=1"
 set "HF_HUB_DISABLE_SYMLINKS_WARNING=1"
+set "HF_HUB_ETAG_TIMEOUT=60"
+set "HF_HUB_DOWNLOAD_TIMEOUT=120"
+set "HF_ENDPOINT=https://hf-mirror.com"
 
 :: Load saved HF_TOKEN from config.json if available
 if exist "config.json" (
