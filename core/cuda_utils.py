@@ -46,6 +46,18 @@ def setup_cuda_dlls() -> bool:
             if llama_str not in os.environ.get("PATH", ""):
                 os.environ["PATH"] = llama_str + os.pathsep + os.environ.get("PATH", "")
 
+            # В Windows llama.cpp по умолчанию ищет бэкенды в папке python.exe.
+            # Явно регистрируем бэкенды CUDA и CPU из директории llama_cpp/lib
+            ggml_dll = llama_dir / "ggml.dll"
+            if ggml_dll.exists():
+                try:
+                    import ctypes
+                    ggml = ctypes.CDLL(str(ggml_dll))
+                    if hasattr(ggml, "ggml_backend_load_all_from_path"):
+                        ggml.ggml_backend_load_all_from_path(llama_str.encode("utf-8"))
+                except Exception:
+                    pass
+
     return found_any
 
 

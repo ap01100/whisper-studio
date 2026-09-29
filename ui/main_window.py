@@ -206,6 +206,11 @@ class MainWindow(ctk.CTk):
         if tab_name == "✨ AI-Конспект":
             self.transcribe_container.pack_forget()
             self.summary_container.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+            # Если в модуле конспекта еще нет текста, но транскрипция уже готова, подтягиваем ее
+            if hasattr(self, "summary_view") and not self.summary_view.get_source_text():
+                trans_text = self._get_current_transcription_text()
+                if trans_text:
+                    self.summary_view.set_source_text(trans_text, self.selected_file)
         else:
             self.summary_container.pack_forget()
             self.transcribe_container.pack(fill="both", expand=True, padx=24, pady=(0, 20))
@@ -640,10 +645,24 @@ class MainWindow(ctk.CTk):
         # Обновление бейджа модели
         self._update_model_badge()
 
+    def _get_current_transcription_text(self) -> str:
+        """Возвращает актуальный структурированный текст распознавания."""
+        if self.current_segments:
+            return format_clean_paragraphs(self.current_segments)
+        raw = self.textbox.get("1.0", "end-1c").strip()
+        if raw and not raw.startswith("[Живой предпросмотр") and not raw.startswith("Готов к работе"):
+            return raw
+        return ""
+
     def _build_summary_view(self):
         """Вкладка модуля конспектирования лекций (LLM)."""
         self.summary_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.summary_view = SummaryView(self.summary_container, on_open_hf_dialog=self._open_hf_token_dialog)
+        self.summary_view = SummaryView(
+            self.summary_container,
+            on_open_hf_dialog=self._open_hf_token_dialog,
+            get_transcription_text=self._get_current_transcription_text,
+            get_transcription_filename=lambda: self.selected_file,
+        )
         self.summary_view.pack(fill="both", expand=True)
 
     # ==========================================================
@@ -956,6 +975,15 @@ class MainWindow(ctk.CTk):
         # Полное форматирование текста в окне
         self._refresh_textbox_content()
 
+        # Автоматическая передача стенограммы в модуль AI-Конспекта
+        try:
+            if hasattr(self, "summary_view"):
+                clean_transcript = self._get_current_transcription_text()
+                if clean_transcript:
+                    self.summary_view.set_source_text(clean_transcript, self.selected_file)
+        except Exception as e:
+            print(f"Auto-transfer error: {e}")
+
         if self.last_saved_path:
             self.toast = ToastMessage(self, f"✓ Текст автосохранён: {Path(self.last_saved_path).name}")
             self.toast.show()
@@ -1132,17 +1160,18 @@ class MainWindow(ctk.CTk):
     # ==========================================================
     def _transfer_to_summarizer(self):
         """Передает транскрибированный текст в AI-Конспект и переключает вкладку."""
-        text = self.textbox.get("1.0", "end-1c").strip()
-        if not text or text.startswith("[Живой предпросмотр") or text.startswith("Готов к работе"):
+        text = self._get_current_transcription_text()
+        if not text:
             messagebox.showinfo(
                 "Нет текста для конспектирования",
                 "Сначала выполните транскрибирование аудиофайла или вставьте текст в поле предпросмотра.",
             )
             return
 
-        self.summary_view.load_transcript(text, self.selected_file)
+        self.summary_view.set_source_text(text, self.selected_file)
         self.tab_switch.set("✨ AI-Конспект")
         self._on_tab_changed("✨ AI-Конспект")
+        self.summary_view._switch_mode("✨ Готовый конспект")
         self.toast = ToastMessage(self, "✓ Текст передан в модуль AI-Конспекта")
         self.toast.show()
 

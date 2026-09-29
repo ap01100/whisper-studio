@@ -80,6 +80,9 @@ class WhisperTranscriber:
                 gc.collect()
 
             model_path = get_resolved_model_path(model_name)
+            is_local = os.path.isdir(model_path)
+            from core.hf_downloader import get_hf_token
+            token = get_hf_token()
 
             try:
                 from faster_whisper import WhisperModel
@@ -88,6 +91,8 @@ class WhisperTranscriber:
                     device=device,
                     compute_type=compute_type,
                     download_root=str(MODELS_DIR),
+                    local_files_only=is_local,
+                    use_auth_token=token if not is_local else None,
                     cpu_threads=4,
                     num_workers=1,
                 )

@@ -11,10 +11,15 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Generator
 
 from core.cuda_utils import setup_cuda_dlls
+from core.ensure_llamacpp import ensure_compatible_llamacpp
 from core.hf_downloader import get_llm_model_path, is_llm_cached, LLM_REGISTRY
 from core.vram_manager import get_vram_manager
 
-# Гарантируем регистрацию DLL путей CUDA 12 перед загрузкой llama_cpp
+# Гарантируем регистрацию DLL путей CUDA 12 и совместимость с CPU (Alder Lake) перед загрузкой llama_cpp
+try:
+    ensure_compatible_llamacpp()
+except Exception:
+    pass
 setup_cuda_dlls()
 try:
     import llama_cpp

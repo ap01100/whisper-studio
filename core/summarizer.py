@@ -4,7 +4,9 @@ Markdown processing and plain-text stripping for multi-format export.
 """
 import re
 import time
+import json
 import threading
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable, Generator
 
 from core.llm_engine import LLMEngine, LLMCancelledException
@@ -372,3 +374,88 @@ def export_summary_txt(content: str, output_path: str) -> None:
     plain_text = strip_markdown(content)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(plain_text + "\n")
+
+
+def load_text_from_file(file_path: str) -> str:
+    """
+    Загружает текст из файла с поддержкой различных кодировок (UTF-8, CP1251, Latin-1)
+    и форматов (.txt, .md, .srt, .vtt, .json).
+    При загрузке субтитров (.srt, .vtt) извлекает связный текст речи без служебных таймкодов.
+    """
+    p = Path(file_path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Файл не найден: {file_path}")
+
+    raw_data = p.read_bytes()
+    text = None
+    for enc in ("utf-8", "utf-8-sig", "cp1251", "cp866", "latin-1"):
+        try:
+            text = raw_data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    if text is None:
+        text = raw_data.decode("utf-8", errors="replace")
+
+    ext = p.suffix.lower()
+
+    if ext == ".json":
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                if "segments" in data and isinstance(data["segments"], list):
+                    seg_texts = [
+                        s.get("text", "").strip()
+                        for s in data["segments"]
+                        if isinstance(s, dict) and s.get("text", "").strip()
+                    ]
+                    return "\n\n".join(seg_texts)
+                elif "text" in data:
+                    return str(data["text"]).strip()
+            elif isinstance(data, list):
+                texts = [
+                    item.get("text", "").strip()
+                    for item in data
+                    if isinstance(item, dict) and item.get("text")
+                ]
+                if texts:
+                    return "\n\n".join(texts)
+        except Exception:
+            pass
+
+    elif ext in (".srt", ".vtt"):
+        lines = text.splitlines()
+        clean_lines = []
+        time_pattern = re.compile(
+            r"\d{1,2}:\d{2}(?::\d{2})?[,\.]\d{2,3}\s*-->\s*\d{1,2}:\d{2}(?::\d{2})?[,\.]\d{2,3}"
+        )
+        tag_pattern = re.compile(r"<[^>]+>")
+
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+            if line_str.isdigit():
+                continue
+            if line_str.upper() == "WEBVTT" or line_str.startswith("NOTE"):
+                continue
+            if time_pattern.search(line_str):
+                continue
+            clean_str = tag_pattern.sub("", line_str).strip()
+            if clean_str:
+                clean_lines.append(clean_str)
+
+        if clean_lines:
+            paragraphs = []
+            cur_para = []
+            for cl in clean_lines:
+                cur_para.append(cl)
+                if cl.endswith((".", "!", "?", "…")):
+                    paragraphs.append(" ".join(cur_para))
+                    cur_para = []
+            if cur_para:
+                paragraphs.append(" ".join(cur_para))
+            return "\n\n".join(paragraphs)
+
+    return text.strip()

@@ -190,10 +190,14 @@ def download_model(
     def _worker():
         try:
             from huggingface_hub import snapshot_download
+            from core.hf_downloader import get_hf_token, apply_hf_environment
+            apply_hf_environment()
+            token = get_hf_token()
             snapshot_download(
                 repo_id=repo_id,
                 local_dir=str(target_dir),
-                max_workers=4,
+                token=token,
+                max_workers=8,
             )
         except Exception as e:
             download_error.append(e)

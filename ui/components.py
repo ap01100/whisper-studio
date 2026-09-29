@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Callable
 
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import filedialog
 
 from ui.theme import (
@@ -333,16 +334,18 @@ class ToastMessage(ctk.CTkFrame):
         self.place_forget()
 
 
-def bind_paste_support(widget):
+def bind_text_shortcuts(widget, allow_edit: bool = True):
     """
-    Универсальный обработчик вставки (Paste) из буфера обмена для CTkEntry и CTkTextbox.
-    Корректно перехватывает русскую раскладку клавиатуры (KeyCode 86 на Windows).
+    Добавляет полную поддержку горячих клавиш (Ctrl+V, Ctrl+C, Ctrl+A, Ctrl+X)
+    с учётом русской раскладки клавиатуры и контекстное меню ПКМ.
     """
     inner = getattr(widget, "_entry", None) or getattr(widget, "_textbox", None)
     if not inner:
         return
 
     def do_paste(event=None):
+        if not allow_edit:
+            return "break"
         try:
             text = widget.clipboard_get()
             if text:
@@ -350,14 +353,111 @@ def bind_paste_support(widget):
                     widget.insert("insert", text)
                 elif hasattr(widget, "_textbox"):
                     widget.insert("insert", text)
+                # Вызываем событие изменения, если привязано
+                widget.event_generate("<<Modified>>")
+        except Exception:
+            pass
+        return "break"
+
+    def do_copy(event=None):
+        try:
+            if hasattr(widget, "_textbox"):
+                try:
+                    sel = widget.get("sel.first", "sel.last")
+                    if sel:
+                        widget.clipboard_clear()
+                        widget.clipboard_append(sel)
+                except Exception:
+                    pass
+            elif hasattr(widget, "_entry"):
+                try:
+                    sel = widget.selection_get()
+                    if sel:
+                        widget.clipboard_clear()
+                        widget.clipboard_append(sel)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return "break"
+
+    def do_cut(event=None):
+        if not allow_edit:
+            return "break"
+        do_copy()
+        try:
+            if hasattr(widget, "_textbox"):
+                widget.delete("sel.first", "sel.last")
+            elif hasattr(widget, "_entry"):
+                widget.delete("sel.first", "sel.last")
+            widget.event_generate("<<Modified>>")
+        except Exception:
+            pass
+        return "break"
+
+    def do_select_all(event=None):
+        try:
+            if hasattr(widget, "_textbox"):
+                widget.tag_add("sel", "1.0", "end")
+            elif hasattr(widget, "_entry"):
+                widget.select_range(0, "end")
         except Exception:
             pass
         return "break"
 
     def on_key(event):
-        # KeyCode 86 = клавиша 'V'/'М' на физической клавиатуре Windows
-        if (event.state & 4) and (event.keycode == 86 or event.keysym.lower() in ("v", "cyrillic_em", "ntilde")):
+        is_ctrl = bool(event.state & 4)
+        if not is_ctrl:
+            return None
+
+        # KeyCode 86 = V, 65 = A, 67 = C, 88 = X
+        kc = event.keycode
+        ks = str(event.keysym).lower()
+
+        if kc == 86 or ks in ("v", "cyrillic_em", "ntilde"):
             return do_paste()
+        elif kc == 65 or ks in ("a", "cyrillic_ef"):
+            return do_select_all()
+        elif kc == 67 or ks in ("c", "cyrillic_es"):
+            return do_copy()
+        elif kc == 88 or ks in ("x", "cyrillic_che"):
+            return do_cut()
 
     inner.bind("<Key>", on_key)
+
+    # Контекстное меню ПКМ
+    menu = tk.Menu(
+        inner,
+        tearoff=0,
+        bg="#181A1F",
+        fg="#F3F4F6",
+        activebackground="#272A33",
+        activeforeground="#FFFFFF",
+        bd=1,
+        relief="solid",
+    )
+    if allow_edit:
+        menu.add_command(label="Вставить (Ctrl+V)", command=do_paste)
+        menu.add_command(label="Вырезать (Ctrl+X)", command=do_cut)
+    menu.add_command(label="Копировать (Ctrl+C)", command=do_copy)
+    menu.add_separator()
+    menu.add_command(label="Выделить всё (Ctrl+A)", command=do_select_all)
+    if allow_edit and hasattr(widget, "_textbox"):
+        def do_clear_all():
+            widget.delete("1.0", "end")
+            widget.event_generate("<<Modified>>")
+        menu.add_command(label="Очистить всё", command=do_clear_all)
+
+    def show_popup(event):
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    inner.bind("<Button-3>", show_popup)
+
+
+def bind_paste_support(widget):
+    """Обратная совместимость: привязывает горячие клавиши и контекстное меню."""
+    bind_text_shortcuts(widget, allow_edit=True)
 

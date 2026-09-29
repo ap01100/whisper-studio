@@ -4,16 +4,38 @@ and provides a local GGUF model registry for Qwen 2.5 and DeepSeek LLMs.
 """
 import os
 import sys
+
+# 0. Настройка кодировки терминала на Windows и отключение сбоящего Xet до импорта huggingface_hub
+if sys.platform == "win32":
+    try:
+        if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+os.environ["HF_HUB_DISABLE_XET"] = "1"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
+os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+
 import json
 import time
 import threading
+import io
 import warnings
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub")
 
+import huggingface_hub.constants as _hf_constants
+_hf_constants.HF_HUB_DISABLE_XET = True
+_hf_constants.HF_HUB_DISABLE_SYMLINKS_WARNING = True
+
 from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub.utils.tqdm import tqdm as HfTqdm
 
 CONFIG_FILE = Path("./config.json").resolve()
 LLM_MODELS_DIR = Path("./models/llm").resolve()
@@ -106,21 +128,47 @@ def set_hf_token(token: Optional[str]) -> None:
 
 
 def apply_hf_environment() -> None:
-    """Применяет параметры Hugging Face к текущему процессу."""
+    """Применяет параметры Hugging Face к текущему процессу и выполняет системную авторизацию."""
+    # 1. Настройка кодировки терминала на Windows для корректного вывода логов
+    if sys.platform == "win32":
+        try:
+            if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+    # 2. Отключаем предупреждения о симлинках на Windows
+    os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+    # 3. Отключаем Xet (на Windows часто зависает соединение с cas-server.xethub.hf.co)
+    # и переключаемся на быстрый, надёжный HTTP-стриминг через Hugging Face CDN с докачкой
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
+    os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+
+    # 4. Авторизация токеном в окружении и кэше Hugging Face Hub
     cfg = load_config()
     token = cfg.get("hf_token")
-    if token:
-        os.environ["HF_TOKEN"] = str(token)
-    elif "HF_TOKEN" in os.environ and not token:
-        del os.environ["HF_TOKEN"]
-
-    # Включение высокопроизводительной передачи данных (Xet / High Performance)
-    if cfg.get("hf_transfer", True):
-        os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
-        os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+    if token and str(token).strip():
+        clean_token = str(token).strip()
+        try:
+            import huggingface_hub
+            if huggingface_hub.get_token() != clean_token:
+                huggingface_hub.login(token=clean_token, add_to_git_credential=False)
+        except Exception:
+            pass
+        os.environ["HF_TOKEN"] = clean_token
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = clean_token
     else:
-        os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
-        os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+        os.environ.pop("HF_TOKEN", None)
+        os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
+        try:
+            import huggingface_hub
+            huggingface_hub.logout()
+        except Exception:
+            pass
 
 
 # ==============================================================================
@@ -182,7 +230,7 @@ def download_llm_model(
     cancel_event: Optional[threading.Event] = None,
 ) -> Path:
     """
-    Скачивает выбранную GGUF-модель с Hugging Face Hub с поддержкой токена и hf_transfer.
+    Скачивает выбранную GGUF-модель с Hugging Face Hub с поддержкой токена и прямого HTTP-стриминга.
     progress_callback(fraction, current_mb, total_mb, speed_mb_s, status_text)
     """
     if model_id not in LLM_REGISTRY:
@@ -201,52 +249,73 @@ def download_llm_model(
             progress_callback(1.0, expected_mb, expected_mb, 0.0, "Модель уже скачана.")
         return target_path
 
-    # Применяем токен и hf_transfer
+    # Применяем токен и настройки сети
     apply_hf_environment()
     token = get_hf_token()
 
+    print(f"[*] Подключение к Hugging Face Hub: {repo_id}/{filename} (~{expected_mb} MB)...", flush=True)
     if progress_callback:
-        progress_callback(0.0, 0.0, expected_mb, 0.0, f"Инициализация скачивания {filename}...")
+        progress_callback(0.0, 0.0, expected_mb, 0.0, f"Подключение к Hugging Face Hub ({filename})...")
 
     start_time = time.time()
-    last_check_time = start_time
-    last_size = 0
 
-    # Фоновый мониторинг размера файла для плавной индикации прогресса и скорости
-    stop_monitor = threading.Event()
+    class DownloadProgressTqdm(HfTqdm):
+        """Потоковый класс отслеживания прогресса и скорости загрузки для hf_hub_download."""
+        def __init__(self, *args, **kwargs):
+            # Принудительно отключаем подавление tqdm в HF Hub
+            kwargs["disable"] = False
+            super().__init__(*args, **kwargs)
+            self.disable = False
 
-    def size_monitor():
-        nonlocal last_check_time, last_size
-        while not stop_monitor.is_set():
-            time.sleep(0.5)
+            self._last_time = time.time()
+            self._last_n = 0
+            self.current_bytes = 0
+            self.last_bytes = 0
+            self.total_bytes = getattr(self, "total", None) or int(expected_mb * 1024 * 1024)
+
+        def update(self, n=1):
             if cancel_event and cancel_event.is_set():
-                break
+                raise RuntimeError("Загрузка отменена пользователем.")
 
-            current_size = 0
-            if target_path.exists():
-                current_size = target_path.stat().st_size
-            else:
-                # Проверяем возможные временные файлы .incomplete / .download
-                for f in LLM_MODELS_DIR.glob(f"*{filename}*"):
-                    current_size = max(current_size, f.stat().st_size)
+            try:
+                super().update(n)
+            except Exception:
+                pass
 
-            current_mb = current_size / (1024 * 1024)
+            self.current_bytes = self.n
             now = time.time()
-            dt = now - last_check_time
-            if dt >= 0.5:
-                speed_mb_s = max(0.0, (current_size - last_size) / (1024 * 1024) / dt)
-                last_check_time = now
-                last_size = current_size
-            else:
-                speed_mb_s = 0.0
+            dt = now - self._last_time
+            tot = self.total or self.total_bytes or int(expected_mb * 1024 * 1024)
+            if dt >= 0.25 or (tot and self.n >= tot):
+                delta = self.n - self._last_n
+                speed_mb_s = (delta / (1024 * 1024)) / dt if dt > 0 else 0.0
+                self._last_time = now
+                self._last_n = self.n
+                self.last_bytes = self.n
 
-            frac = min(0.99, current_mb / expected_mb) if expected_mb > 0 else 0.0
-            st_text = f"Загрузка: {current_mb:.1f} / {expected_mb:.0f} MB ({speed_mb_s:.1f} MB/s)"
-            if progress_callback:
-                progress_callback(frac, current_mb, expected_mb, speed_mb_s, st_text)
+                cur_mb = self.n / (1024 * 1024)
+                tot_mb = tot / (1024 * 1024)
+                frac = min(0.999, self.n / tot) if tot > 0 else 0.0
+                st_text = f"Загрузка: {cur_mb:.1f} / {tot_mb:.0f} MB ({speed_mb_s:.1f} MB/s)"
+                if progress_callback:
+                    progress_callback(frac, cur_mb, tot_mb, speed_mb_s, st_text)
 
-    monitor_thread = threading.Thread(target=size_monitor, daemon=True)
-    monitor_thread.start()
+        def update_transfer(self, inc=1):
+            # Внимание: http_get уже вызывает progress.update(len(chunk)).
+            # Вызов update() здесь приводил бы к двойному учёту скачанных байт.
+            pass
+
+        def set_postfix_str(self, s="", refresh=True):
+            pass
+
+        def set_transfer_postfix_str(self, s="", refresh=True):
+            pass
+
+        def close(self):
+            try:
+                super().close()
+            except Exception:
+                pass
 
     try:
         downloaded_file = hf_hub_download(
@@ -254,19 +323,24 @@ def download_llm_model(
             filename=filename,
             local_dir=str(LLM_MODELS_DIR),
             token=token,
+            tqdm_class=DownloadProgressTqdm,
         )
-        stop_monitor.set()
-        monitor_thread.join(timeout=1.0)
 
         total_elapsed = time.time() - start_time
         avg_speed = (expected_mb / total_elapsed) if total_elapsed > 0 else 0.0
+        print(f"[OK] Модель {filename} успешно сохранена в {downloaded_file} (средняя скорость: {avg_speed:.1f} MB/s)", flush=True)
         if progress_callback:
             progress_callback(1.0, expected_mb, expected_mb, avg_speed, "Загрузка модели завершена!")
 
         return Path(downloaded_file)
 
     except Exception as e:
-        stop_monitor.set()
         if cancel_event and cancel_event.is_set():
+            print(f"[!] Загрузка {filename} прервана пользователем.", flush=True)
             raise RuntimeError("Загрузка отменена пользователем.") from e
+        print(f"[ERROR] Ошибка скачивания {filename}: {e}", flush=True)
         raise RuntimeError(f"Ошибка скачивания модели с Hugging Face: {e}") from e
+
+
+# Автоматическое применение настроек окружения Hugging Face при загрузке модуля
+apply_hf_environment()
